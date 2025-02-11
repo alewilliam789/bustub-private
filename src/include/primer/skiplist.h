@@ -48,7 +48,6 @@ class SkipList {
   /**  @brief Constructs an empty skip list with an optional custom comparison function. */
   explicit SkipList(const Compare &compare = Compare{}) { 
     this->compare_ = compare;
-
     this->header_ = std::make_shared<SkipNode>(MaxHeight);
   }
 
@@ -91,6 +90,9 @@ class SkipList {
   // - Finds the node that is no less than the given key.
   // - Inserts a new node with the given key.
   // - Adjust height and previous pointers.
+  
+  auto Find(const K &key, std::shared_ptr<SkipNode> start_node, size_t height) -> std::shared_ptr<SkipNode>;
+  auto CheckNearestMatching(const K &key, std::shared_ptr<SkipNode> start_node, size_t height) -> bool;
 
   /** @brief Lowest level index for the skip list. */
   static constexpr size_t LOWEST_LEVEL = 0;
@@ -109,7 +111,7 @@ class SkipList {
    *
    * Invariant: `height_` should never be greater than `MaxHeight`.
    */
-  uint32_t height_{1};
+  size_t height_{1};
 
   /** @brief Number of elements in the skip list. */
   size_t size_{0};
@@ -137,6 +139,7 @@ SKIPLIST_TEMPLATE_ARGUMENTS struct SkipList<K, Compare, MaxHeight, Seed>::SkipNo
     this->key_ = std::move(key);
     this->links_ = std::vector<std::shared_ptr<SkipNode>>(height);
   }
+
 
   auto Height() const -> size_t;
   auto Next(size_t level) const -> std::shared_ptr<SkipNode>;
