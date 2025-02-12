@@ -92,6 +92,7 @@ class SkipList {
   // - Adjust height and previous pointers.
   
   auto Find(const K &key, std::shared_ptr<SkipNode> start_node, size_t height) -> std::shared_ptr<SkipNode>;
+  auto FindExact(const K &key, std::shared_ptr<SkipNode> start_node, size_t height) -> std::shared_ptr<SkipNode>;
   auto CheckNearestMatching(const K &key, std::shared_ptr<SkipNode> start_node, size_t height) -> bool;
 
   /** @brief Lowest level index for the skip list. */

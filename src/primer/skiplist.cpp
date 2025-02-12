@@ -45,6 +45,8 @@ SKIPLIST_TEMPLATE_ARGUMENTS auto SkipList<K, Compare, MaxHeight, Seed>::Size() -
  * which could block up the the stack.
  */
 SKIPLIST_TEMPLATE_ARGUMENTS void SkipList<K, Compare, MaxHeight, Seed>::Drop() {
+  std::unique_lock<std::shared_mutex> lock(this->rwlock_);
+  
   for (size_t i = 0; i < MaxHeight; i++) {
     auto curr = std::move(header_->links_[i]);
     while (curr != nullptr) {
@@ -61,33 +63,88 @@ SKIPLIST_TEMPLATE_ARGUMENTS void SkipList<K, Compare, MaxHeight, Seed>::Drop() {
  * Note: You might want to use the provided `Drop` helper function.
  */
 SKIPLIST_TEMPLATE_ARGUMENTS void SkipList<K, Compare, MaxHeight, Seed>::Clear() {
-  UNIMPLEMENTED("TODO(P0): Add implementation.");
+  std::unique_lock<std::shared_mutex> lock(this->rwlock_);
+
+  std::shared_ptr<SkipNode> curr_node = this->header_;
+
+  
+  while(curr_node != nullptr) {
+      std::shared_ptr<SkipNode> next_node = curr_node->links_[0]; 
+
+      if (curr_node == this->header_) {
+        this->header_->links_ = std::vector<std::shared_ptr<SkipNode>>(MaxHeight);
+      }
+      else {
+        curr_node = nullptr;
+      }
+
+      curr_node = next_node;
+  }
+
+  this->size_ = 0;
 }
 
 /**
- * @brief Finds the next node with key that breaks the comparison
+ * @brief Finds the node before the exact node with key provided
  * @param key key to find.
- * @return the nearest pointer that breaks the comparison function, nullptr if the key already exists or the size is 0. 
+ * @param start_node is a shared pointer to start searching at.
+ * @param height is the height of the node you want to start at.
+ * @return the pointer to the node before or a nullptr
+ */
+SKIPLIST_TEMPLATE_ARGUMENTS auto SkipList<K, Compare, MaxHeight, Seed>::FindExact(const K &key, std::shared_ptr<SkipNode> start_node, size_t height) -> std::shared_ptr<SkipNode> {
+  std::shared_ptr<SkipNode> curr_node = start_node;
+
+  if (!this->compare_(key, curr_node->key_) && !this->compare_(curr_node->key_, key) && curr_node != this->header_) {
+    return curr_node;
+  }
+
+  for(int i = height-1; i >= 0; i--) {
+    std::shared_ptr<SkipNode> next_node = curr_node->links_[i];
+
+    while(next_node != nullptr) {
+
+        if(!this->compare_(key, next_node->key_) && !this->compare_(next_node->key_,key)) {
+          return curr_node;
+        }
+
+        if (!this->compare_(key,next_node->key_)) {
+          curr_node = next_node;
+          next_node = curr_node->links_[i];
+        }
+        else {
+          break;
+        }
+    }
+  }
+
+  return nullptr;
+}
+
+/**
+ * @brief Finds a node that that by adding the next node will fulfill the relationship of the list
+ * @param key key to find.
+ * @param start_node is a shared pointer to start searching at.
+ * @param height is the height of the node you want to start at.
+ * @return the nearest node that breaks the comparison function for the given height
  */
 SKIPLIST_TEMPLATE_ARGUMENTS auto SkipList<K, Compare, MaxHeight, Seed>::Find(const K &key, std::shared_ptr<SkipNode> start_node, size_t height) -> std::shared_ptr<SkipNode> {
   std::shared_ptr<SkipNode> curr_node = start_node;
-
+  
+  std::shared_ptr<SkipNode> next_node;
 
   for(int i = height-1; i >= 0; i--) {
-    while(curr_node != nullptr) {
+    next_node = curr_node->links_[i];
 
-      if(curr_node->links_[i] != nullptr) {
-        std::shared_ptr<SkipNode> next_node = curr_node->links_[i];
+    while(next_node != nullptr) {
+      
+      next_node = curr_node->links_[i];
 
-        if(this->compare_(key, next_node->key_)) {
-          return curr_node;  
-        }
+      if(this->compare_(key, next_node->key_)) {
+        return curr_node;  
+      }
        
-        curr_node = next_node;
-      }
-      else {
-        break;
-      }
+      curr_node = next_node;
+      next_node = curr_node->links_[i];
     }
     break;
   }
@@ -95,35 +152,38 @@ SKIPLIST_TEMPLATE_ARGUMENTS auto SkipList<K, Compare, MaxHeight, Seed>::Find(con
   return curr_node;
 }
 
+/**
+ * @brief Checks the nearest neighbors to determine if a node already exists.
+ *
+ * @param key key to insert.
+ * @param start_node a shared pointer to a skip node to search.
+ * @param height the starting height to search from.
+ * @return true if the key is found, false if the key doesn't exist.
+ */
 SKIPLIST_TEMPLATE_ARGUMENTS auto SkipList<K, Compare, MaxHeight, Seed>::CheckNearestMatching(const K &key, std::shared_ptr<SkipNode> start_node, size_t height) -> bool {
-  std::shared_ptr<SkipNode> curr_node = start_node;
+  std::shared_ptr<SkipNode> found_node = this->FindExact(key, start_node, height);
 
+  if(found_node == nullptr) {
+    return false;
+  }
 
-  for(int i = height-1; i >= 0; i--) {
-    while(curr_node != nullptr) {
+  if(!this->compare_(key, found_node->key_) && !this->compare_(found_node->key_,key)) {
+    return true;
+  }
 
-      if(curr_node->links_[i] != nullptr) {
-        std::shared_ptr<SkipNode> next_node = curr_node->links_[i];
+  for(int i = found_node->Height()-1; i >= 0; i--) {
+    std::shared_ptr<SkipNode> next_node = found_node->links_[i];
 
-        if((!this->compare_(key, next_node->key_) && !this->compare_(next_node->key_,key))) {
-          return true;  
-        }
-        
-        if (!this->compare_(key, next_node->key_)) {
-            curr_node = next_node;
-        }
-        else {
-          break;
-        }
-      }
-      else {
-        break;
+    if(next_node != nullptr) {
+      if((!this->compare_(key, next_node->key_) && !this->compare_(next_node->key_,key))) {
+        return true;  
       }
     }
   }
 
   return false;
 }
+
 
 /**
  * @brief Inserts a key into the skip list.
@@ -134,10 +194,9 @@ SKIPLIST_TEMPLATE_ARGUMENTS auto SkipList<K, Compare, MaxHeight, Seed>::CheckNea
  * @return true if the insertion is successful, false if the key already exists.
  */
 SKIPLIST_TEMPLATE_ARGUMENTS auto SkipList<K, Compare, MaxHeight, Seed>::Insert(const K &key) -> bool {
-  bool was_successful = false;
-
-
   std::unique_lock<std::shared_mutex> lock(this->rwlock_);
+
+  bool was_successful = false;
 
   std::shared_ptr<SkipNode> new_node = std::make_shared<SkipNode>(this->RandomHeight(), key);
 
@@ -154,7 +213,7 @@ SKIPLIST_TEMPLATE_ARGUMENTS auto SkipList<K, Compare, MaxHeight, Seed>::Insert(c
 
   bool is_inserted = this->CheckNearestMatching(key, found_node, found_node->Height());
 
-  if ((!this->compare_(key, found_node->key_) && !this->compare_(found_node->key_, key) && found_node != this->header_) || is_inserted) {
+  if(is_inserted && (this->header_ != found_node)) {
     return false;
   }
 
@@ -185,7 +244,32 @@ SKIPLIST_TEMPLATE_ARGUMENTS auto SkipList<K, Compare, MaxHeight, Seed>::Insert(c
  * @return bool true if the element got erased, false otherwise.
  */
 SKIPLIST_TEMPLATE_ARGUMENTS auto SkipList<K, Compare, MaxHeight, Seed>::Erase(const K &key) -> bool {
-  UNIMPLEMENTED("TODO(P0): Add implementation.");
+  
+  std::unique_lock<std::shared_mutex> lock(this->rwlock_);
+
+  std::shared_ptr<SkipNode> found_node = this->FindExact(key, this->header_, MaxHeight);
+
+  bool is_erased = false;
+
+  if (found_node == nullptr) {
+    return is_erased;
+  }
+
+  for (int i = found_node->Height()-1; i > -1; i--) {
+    std::shared_ptr<SkipNode> next_node = found_node->links_[i]; 
+    
+    if(next_node != nullptr && (!this->compare_(key, next_node->key_) && !this->compare_(next_node->key_, key))) {
+        found_node->links_[i] = next_node->links_[i];
+        is_erased = true;
+    }
+  }
+
+  if(is_erased) {
+    this->size_ -= 1;
+  }
+
+
+  return is_erased;
 }
 
 /**
@@ -198,18 +282,23 @@ SKIPLIST_TEMPLATE_ARGUMENTS auto SkipList<K, Compare, MaxHeight, Seed>::Erase(co
 SKIPLIST_TEMPLATE_ARGUMENTS auto SkipList<K, Compare, MaxHeight, Seed>::Contains(const K &key) -> bool {
   // Following the standard library: Key `a` and `b` are considered equivalent if neither compares less
   // than the other: `!compare_(a, b) && !compare_(b, a)`.
+  
+  std::shared_lock<std::shared_mutex> lock(this->rwlock_);
 
-  std::shared_ptr<SkipNode> found_node = this->Find(key, this->header_, MaxHeight);
+  std::shared_ptr<SkipNode> found_node = this->FindExact(key, this->header_, MaxHeight);
 
   bool is_equal = false;
-  
-  std::shared_ptr<SkipNode> next_node = found_node->links_[found_node->Height()-1];
 
+  if (found_node == nullptr) {
+    return is_equal;
+  }
+  
   for (int i = found_node->Height()-1; i > -1; i--) {
-    if (next_node != found_node->links_[i]) {
-      found_node = this->Find(key, found_node, i+1);
+    std::shared_ptr<SkipNode> next_node = found_node->links_[i];
+
+    if (next_node != nullptr) {
+      is_equal = is_equal ? is_equal : (!this->compare_(key, next_node->key_) && !this->compare_(next_node->key_, key));
     }
-      is_equal = is_equal ? is_equal : (!this->compare_(key, found_node->key_) && !this->compare_(found_node->key_, key));
   }
 
   return is_equal;
